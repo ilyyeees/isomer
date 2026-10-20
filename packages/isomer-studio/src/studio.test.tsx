@@ -26,6 +26,7 @@ import {
 } from './fixtures/components_pack';
 import type { CompiledEvaluator } from './model/compile_jsx';
 import { defaultCompose } from './model/compose_example';
+import { encodeSource } from './model/compose_link';
 import { JSX_TRANSFORM_OPTIONS } from './model/jsx_transform';
 import { IsomerStudio } from './studio';
 import type { JsxTransform, RasterizePng } from './types';
@@ -46,6 +47,14 @@ vi.mock('./model/compile_jsx', async () => {
         typeof actual.compileCompositionJsx
       >
     ) => actual.compileCompositionJsx(source, shim, transformJsx, { evaluate }),
+    compileCompositionDocumentJsx: (
+      ...[source, shim, transformJsx]: Parameters<
+        typeof actual.compileCompositionDocumentJsx
+      >
+    ) =>
+      actual.compileCompositionDocumentJsx(source, shim, transformJsx, {
+        evaluate,
+      }),
   };
 });
 
@@ -176,6 +185,7 @@ describe('IsomerStudio', () => {
         .map(({ textContent }) => textContent);
     expect(headings()).toEqual(['Narrative and content', 'Data display']);
     expect(labels()).toEqual([
+      'Composition',
       'Gallery',
       'Callout',
       'Divider',
@@ -191,7 +201,7 @@ describe('IsomerStudio', () => {
       { target: { value: 'statGroup' } }
     );
     expect(headings()).toEqual(['Data display']);
-    expect(labels()).toEqual(['Gallery', 'Stat group']);
+    expect(labels()).toEqual(['Composition', 'Gallery', 'Stat group']);
   });
 
   it('shows a schema-derived prop table below the source editor without first-node editing controls', async () => {
@@ -778,6 +788,133 @@ describe('IsomerStudio', () => {
       expect(
         screen.queryByRole('region', { name: 'PNG preview' })
       ).not.toBeInTheDocument();
+    });
+  });
+
+  describe('composition editor', () => {
+    const findComposer = () =>
+      screen.findByRole<HTMLTextAreaElement>('textbox', {
+        name: 'Composition source',
+      });
+    const textPreview = () =>
+      screen.getByRole('region', { name: 'Text preview' });
+    const workbench = () =>
+      within(screen.getByRole('region', { name: 'Composition workbench' }));
+    const openLink = async (source: string, lang: 'jsx' | 'json') => {
+      window.location.hash = `#/compose?code=${await encodeSource(source)}&lang=${lang}`;
+    };
+
+    beforeEach(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+
+    it('opens from the nav above Gallery with a starter, and keeps the URL in step', async () => {
+      await renderStudio();
+      const nav = screen.getByRole('navigation', { name: 'Primitives' });
+      fireEvent.click(within(nav).getByRole('button', { name: 'Composition' }));
+
+      const editor = await findComposer();
+      expect(
+        within(nav).getByRole('button', { name: 'Composition' })
+      ).toHaveAttribute('aria-current', 'page');
+      expect(JSON.parse(editor.value)).toMatchObject({
+        type: 'view',
+        body: [{ type: 'callout' }],
+      });
+      expect(workbench().getByText('Valid')).toBeInTheDocument();
+      await waitFor(() =>
+        expect(window.location.hash).toMatch(
+          /^#\/compose\?code=[\w-]+&lang=json$/
+        )
+      );
+    });
+
+    it('loads a JSON composition from a link and renders it at once', async () => {
+      const source = JSON.stringify({
+        type: 'view',
+        title: 'Linked',
+        body: [{ type: 'callout', body: 'From a link.' }],
+      });
+      await openLink(source, 'json');
+      render(<IsomerStudio {...{ runtime }} />);
+
+      expect(await findComposer()).toHaveValue(source);
+      await waitFor(() =>
+        expect(textPreview()).toHaveTextContent('From a link.')
+      );
+      expect(workbench().getByText('Valid')).toBeInTheDocument();
+    });
+
+    it('holds linked JSX until the reader runs it', async () => {
+      const source =
+        '<Composition title="Linked">\n  <Callout>Ran.</Callout>\n</Composition>';
+      await openLink(source, 'jsx');
+      render(<IsomerStudio {...{ runtime, transformJsx }} />);
+
+      expect(await findComposer()).toHaveValue(source);
+      expect(workbench().getByText('Not run')).toBeInTheDocument();
+      expect(
+        screen.queryByRole('region', { name: 'Text preview' })
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Run this code' }));
+      await waitFor(() => expect(textPreview()).toHaveTextContent('Ran.'));
+      expect(workbench().getByText('Valid')).toBeInTheDocument();
+    });
+
+    it('reports a link it cannot read and starts from the starter', async () => {
+      window.location.hash = '#/compose?code=!!!';
+      render(<IsomerStudio {...{ runtime }} />);
+
+      expect(
+        await screen.findByText('The link did not load')
+      ).toBeInTheDocument();
+      expect((await findComposer()).value).toContain('"callout"');
+    });
+
+    it('starts from a primitive example named in the link', async () => {
+      window.location.hash = '#/compose?example=divider/0';
+      render(<IsomerStudio {...{ runtime }} />);
+
+      await waitFor(async () =>
+        expect((await findComposer()).value).toContain('"divider"')
+      );
+    });
+
+    it('carries a Workbench draft over, and runs JSX this tab wrote', async () => {
+      render(<IsomerStudio {...{ runtime, transformJsx }} />);
+      fireEvent.change(await findEditor(), {
+        target: {
+          value: '<Composition>\n  <Callout>Carried.</Callout>\n</Composition>',
+        },
+      });
+      await waitFor(() => expect(textPreview()).toHaveTextContent('Carried.'));
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Open in the composition editor' })
+      );
+
+      expect(await findComposer()).toHaveValue(
+        '<Composition>\n  <Callout>Carried.</Callout>\n</Composition>'
+      );
+      expect(workbench().queryByText('Not run')).not.toBeInTheDocument();
+      expect(window.location.hash).toMatch(/^#\/compose\?code=/);
+    });
+
+    it('keeps its draft while another page shows', async () => {
+      window.location.hash = '#/compose';
+      render(<IsomerStudio {...{ runtime }} />);
+      const draft = JSON.stringify({
+        type: 'view',
+        body: [{ type: 'callout', body: 'Kept.' }],
+      });
+      fireEvent.change(await findComposer(), { target: { value: draft } });
+
+      const nav = screen.getByRole('navigation', { name: 'Primitives' });
+      fireEvent.click(within(nav).getByRole('button', { name: 'Divider' }));
+      fireEvent.click(within(nav).getByRole('button', { name: 'Composition' }));
+
+      expect(await findComposer()).toHaveValue(draft);
     });
   });
 });

@@ -88,9 +88,12 @@ export interface StudioNavProps {
   app?: string | undefined;
   /** The open app's `path`, which picks its active page. */
   appPath?: string | undefined;
+  /** True while the composition editor is open; no primitive is active then. */
+  isComposing?: boolean | undefined;
   isOpen: boolean;
   isCompact?: boolean | undefined;
   onToggle: () => void;
+  onCompose: () => void;
   onSelect: (page: string) => void;
   onSelectApp: (id: string, path?: string) => void;
 }
@@ -108,6 +111,22 @@ const GALLERY_ITEM: NavItem = {
   icon: (
     <EuiIcon
       type="grid"
+      css={css`
+        inline-size: ${NAV_GLYPH_SIZE}px;
+        block-size: ${NAV_GLYPH_SIZE}px;
+      `}
+      aria-hidden
+    />
+  ),
+  isPrimitive: false,
+};
+
+const COMPOSE_ITEM: NavItem = {
+  id: 'compose',
+  label: 'Composition',
+  icon: (
+    <EuiIcon
+      type="document"
       css={css`
         inline-size: ${NAV_GLYPH_SIZE}px;
         block-size: ${NAV_GLYPH_SIZE}px;
@@ -398,15 +417,20 @@ const Group = ({
   );
 };
 
-/** The Gallery link and the config's apps with their pages, then primitives under collapsible groups, narrowed by a filter. */
+/**
+ * The config's apps with their pages, the composition editor and Gallery links, then primitives
+ * under collapsible groups, narrowed by a filter.
+ */
 export const StudioNav = ({
   mode,
   page,
   app,
   appPath = '',
+  isComposing = false,
   isOpen,
   isCompact = false,
   onToggle,
+  onCompose,
   onSelect,
   onSelectApp,
 }: StudioNavProps) => {
@@ -541,7 +565,7 @@ export const StudioNav = ({
     padding: 0;
     list-style: none;
   `;
-  const activePage = app === undefined ? page : undefined;
+  const activePage = app === undefined && !isComposing ? page : undefined;
   const rows = (items: readonly NavItem[]) =>
     items.map((item) => (
       <Row
@@ -603,6 +627,13 @@ export const StudioNav = ({
             <ul css={plainList}>
               {appRows}
               <Row
+                item={COMPOSE_ITEM}
+                isActive={isComposing}
+                inset={euiTheme.size.m}
+                onSelect={onCompose}
+                {...{ accent }}
+              />
+              <Row
                 item={GALLERY_ITEM}
                 isActive={GALLERY === activePage}
                 inset={euiTheme.size.m}
@@ -635,6 +666,12 @@ export const StudioNav = ({
                   isActive={item.id === app}
                 />
               ))}
+              <RailEntry
+                item={COMPOSE_ITEM}
+                isActive={isComposing}
+                onSelect={onCompose}
+                {...{ accent }}
+              />
               <RailEntry
                 item={GALLERY_ITEM}
                 isActive={GALLERY === activePage}

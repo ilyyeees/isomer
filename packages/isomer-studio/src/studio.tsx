@@ -26,10 +26,12 @@ import type { StudioRouter } from './chrome/route';
 import {
   GALLERY,
   isAppRoute,
+  isComposeRoute,
   isHomeRoute,
   useStudioRoute,
 } from './chrome/route';
 import type { StudioApp } from './config';
+import { ComposeView } from './dev/compose_view';
 import { DevView } from './dev/dev_view';
 import { DocsView } from './docs/docs_view';
 import { GalleryView } from './docs/gallery_view';
@@ -106,7 +108,15 @@ const Layout = ({
   colorMode: ColorModePreference;
   onColorModeChange: (colorMode: ColorModePreference) => void;
 }) => {
-  const { location, route, navigate, openApp, goHome } = router;
+  const {
+    location,
+    route,
+    navigate,
+    openApp,
+    goHome,
+    openComposer,
+    replaceComposer,
+  } = router;
   const { euiTheme } = useEuiTheme();
   const {
     apps,
@@ -118,16 +128,25 @@ const Layout = ({
     ? apps.find(({ id }) => id === location.app)
     : undefined;
   const { page } = route;
-  const mode = app || home ? undefined : route.mode;
+  const composing = isComposeRoute(location);
+  const mode = app || home ? undefined : composing ? 'dev' : route.mode;
   const look: Look = home ? 'home' : (mode ?? 'docs');
   const accent = useAccent(look === 'home' ? 'docs' : look);
   const [isCompactNav, setCompactNav] = useState(
     () => compactNavQuery()?.matches ?? false
   );
   const [isNavOpen, setNavOpen] = useState(() => !isCompactNav);
-  const [devRoute, setDevRoute] = useState(mode === 'dev' ? route : undefined);
-  if (mode === 'dev' && devRoute !== route) {
+  const [devRoute, setDevRoute] = useState(
+    mode === 'dev' && !composing ? route : undefined
+  );
+  if (mode === 'dev' && !composing && devRoute !== route) {
     setDevRoute(route);
+  }
+  const [composeParams, setComposeParams] = useState(
+    composing ? location.params : undefined
+  );
+  if (composing && composeParams !== location.params) {
+    setComposeParams(location.params);
   }
 
   useEffect(() => {
@@ -212,8 +231,10 @@ const Layout = ({
           <EuiThemeProvider colorMode="dark" wrapperProps={darkWrapper}>
             <StudioNav
               {...{ page }}
-              mode={route.mode}
+              mode={mode ?? route.mode}
               app={app?.id}
+              isComposing={composing}
+              onCompose={() => openComposer()}
               appPath={isAppRoute(location) ? location.path : undefined}
               isOpen={isNavOpen}
               isCompact={isCompactNav}
@@ -251,12 +272,22 @@ const Layout = ({
             ) : null}
             {!primitives.length ? null : (
               <>
+                {composeParams ? (
+                  <div hidden={!composing} css={fill}>
+                    <ComposeView
+                      params={composeParams}
+                      isVisible={composing}
+                      stacked={isCompactNav}
+                      {...{ openComposer, replaceComposer }}
+                    />
+                  </div>
+                ) : null}
                 {devRoute ? (
-                  <div hidden={mode !== 'dev'} css={fill}>
+                  <div hidden={mode !== 'dev' || composing} css={fill}>
                     <DevView
                       route={devRoute}
                       stacked={isCompactNav}
-                      {...{ navigate }}
+                      {...{ navigate, openComposer }}
                     />
                   </div>
                 ) : null}
@@ -352,9 +383,10 @@ const Studio = ({
 
   const { location } = router;
   const tinted =
-    !isAppRoute(location) &&
-    !isHomeRoute(location) &&
-    router.route.mode === 'dev';
+    isComposeRoute(location) ||
+    (!isAppRoute(location) &&
+      !isHomeRoute(location) &&
+      router.route.mode === 'dev');
 
   return (
     <StudioContextProvider {...{ value }}>
