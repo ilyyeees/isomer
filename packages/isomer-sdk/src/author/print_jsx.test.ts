@@ -190,6 +190,49 @@ describe('printNodeJsx', () => {
   });
 });
 
+describe('printCompositionJsx', () => {
+  const body: PrimitiveNode[] = [{ type: 'callout', body: 'Disk full.' }];
+
+  it('prints no props without a root', () => {
+    expect(printCompositionJsx(body, env)).toBe(
+      '<Composition>\n  <Callout>Disk full.</Callout>\n</Composition>'
+    );
+    expect(printCompositionJsx(body, env, { root: {} })).toBe(
+      printCompositionJsx(body, env)
+    );
+  });
+
+  it('prints the root fields as props that read back', () => {
+    const root = {
+      title: 'Hosts',
+      theme: 'dark' as const,
+      meta: { source: 'agent', freshness: { stale: true } },
+    };
+    const source = printCompositionJsx(body, env, { root });
+    expect(source).toMatch(
+      /^<Composition\n {2}title="Hosts"\n {2}theme="dark"/
+    );
+
+    const { outputText } = ts.transpileModule(`result = ${source};`, {
+      compilerOptions: {
+        jsx: ts.JsxEmit.React,
+        jsxFactory: 'h',
+        jsxFragmentFactory: 'Fragment',
+        target: ts.ScriptTarget.ES2022,
+      },
+    });
+    const context: Record<string, unknown> = {
+      ...shim,
+      h: createElement,
+      Fragment,
+    };
+    runInNewContext(outputText, context);
+    expect(
+      shim.toComposition(context.result as ReactElement<CompositionAuthorProps>)
+    ).toEqual({ type: 'view', body, ...root });
+  });
+});
+
 describe.each([
   ['props only', propsOnly],
   ['with the authored spec', undefined],

@@ -8,6 +8,7 @@
 import { createElement, type ReactElement, type ReactNode } from 'react';
 import type { ZodType } from 'zod';
 
+import type { Composition } from '../composition/composition';
 import type { PrimitiveNode } from '../define/primitive_module';
 
 import type {
@@ -548,12 +549,28 @@ const createPrinter = ({
 export const printNodeJsx = (node: PrimitiveNode, env: PrintJsxEnv): string =>
   printTree(createPrinter(env).nodeTree(node), '');
 
-/** Prints a composition body as JSX children of `<Composition>`. */
+/** The composition fields {@link printCompositionJsx} can print as props of `<Composition>`. */
+export type PrintCompositionRoot = Omit<Composition, 'type' | 'body'>;
+
+/** The order root props print in, which is the order `Composition` declares them. */
+const ROOT_PROPS = ['version', 'title', 'subtitle', 'theme', 'meta'] as const;
+
+/**
+ * Prints a composition body as JSX children of `<Composition>`, with `root`'s
+ * fields, when given, as its props.
+ */
 export const printCompositionJsx = (
   body: readonly PrimitiveNode[],
-  env: PrintJsxEnv
+  env: PrintJsxEnv,
+  { root }: { root?: PrintCompositionRoot | undefined } = {}
 ): string => {
   const { nodeTree } = createPrinter(env);
+  const attributes = ROOT_PROPS.flatMap((key): Array<[string, unknown]> =>
+    root?.[key] === undefined ? [] : [[key, root[key]]]
+  );
+  if (attributes.length && body.length) {
+    return printTree(tree('Composition', attributes, body.map(nodeTree)), '');
+  }
   const nodes = body
     .map((node) => printTree(nodeTree(node), ''))
     .join('\n')
