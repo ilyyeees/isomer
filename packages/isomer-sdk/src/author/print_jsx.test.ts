@@ -191,7 +191,7 @@ describe('printNodeJsx', () => {
 });
 
 describe('printCompositionJsx', () => {
-  const body: PrimitiveNode[] = [{ type: 'callout', body: 'Disk full.' }];
+  const body: CalloutNode[] = [{ type: 'callout', body: 'Disk full.' }];
 
   it('prints no props without a root', () => {
     expect(printCompositionJsx(body, env)).toBe(
